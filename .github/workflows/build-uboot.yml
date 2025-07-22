@@ -7,21 +7,18 @@ on:
     paths:
       - 'u-boot/**'
   schedule:
-    - cron: '0 0 * * MON'
+    - cron: '0 0 * * MON'  # 每周一自动检查更新
 
 env:
-  BOARD: rk3399-nanopi-m4
+  BOARD: rk3399-nanopi-m4  # 特定设备配置
   CROSS_COMPILE: aarch64-linux-gnu-
   ARCH: arm64
-  BL31_SOURCE: "rk3399_bl31_v1.38.elf"
+  BL31_SOURCE: "rk3399_bl31_v1.38.elf"  # Rockchip BL31 版本
 
 jobs:
   build-uboot:
     runs-on: ubuntu-24.04
     timeout-minutes: 25
-    strategy:
-      max-parallel: 1
-      fail-fast: false
 
     steps:
     - name: Checkout repository
@@ -32,10 +29,8 @@ jobs:
         if [ -d "u-boot" ]; then
           echo "Using existing U-Boot source"
         else
-          echo "Cloning U-Boot from GitHub mirror"
-          git clone --depth 1 --branch v2024.07 https://github.com/u-boot/u-boot.git u-boot || \
-          (echo "Trying backup U-Boot mirror" && \
-           git clone --depth 1 --branch v2024.07 https://gitlab.denx.de/u-boot/u-boot.git u-boot)
+          echo "Cloning U-Boot mainline"
+          git clone --depth 1 --branch v2024.07 https://source.denx.de/u-boot/u-boot.git u-boot
         fi
 
     - name: Install dependencies
@@ -50,24 +45,15 @@ jobs:
           flex bison \
           python3 python3-dev python3-distutils \
           swig libssl-dev \
-          zip libfdt-dev
+          zip
 
     - name: Prepare Rockchip binaries
       run: |
         if [ ! -d "rkbin" ]; then
-          echo "Cloning rkbin from GitHub mirror"
-          git clone --depth 1 https://github.com/rockchip-linux/rkbin.git rkbin || \
-          git clone --depth 1 https://github.com/jeanmerced/rkbin.git rkbin
+          git clone --depth 1 https://github.com/rockchip-linux/rkbin.git
         fi
-        
-        # 检查并复制 BL31 文件
-        mkdir -p u-boot/arch/arm/mach-rockchip
-        if [ -f "rkbin/bin/rk33/${{ env.BL31_SOURCE }}" ]; then
-          cp rkbin/bin/rk33/${{ env.BL31_SOURCE }} u-boot/arch/arm/mach-rockchip/bl31.bin
-        else
-          echo "Downloading BL31 from direct URL"
-          wget https://github.com/rockchip-linux/rkbin/raw/master/bin/rk33/${{ env.BL31_SOURCE }} -O u-boot/arch/arm/mach-rockchip/bl31.bin
-        fi
+        # 复制必要的 Rockchip 二进制文件
+        cp rkbin/bin/rk33/${{ env.BL31_SOURCE }} u-boot/bl31.bin
 
     - name: Configure U-Boot
       run: |
@@ -78,91 +64,84 @@ jobs:
     - name: Customize configuration for 2GB model
       run: |
         cd u-boot
-        if [ -x "./scripts/config" ]; then
-          ./scripts/config --disable CONFIG_SPL_FIT_HW_CRYPTO
-          ./scripts/config --set-val CONFIG_SYS_MALLOC_LEN 0x2000000
-          ./scripts/config --enable CONFIG_SPL_DM_SERIAL
-          ./scripts/config --enable CONFIG_CMD_PMIC
-          ./scripts/config --disable CONFIG_ROCKCHIP_EFUSE
-          make olddefconfig
-        else
-          echo "Config script not found, skipping customizations"
-        fi
+        # 为 2GB 型号设置特定配置
+        ./scripts/config --disable CONFIG_SPL_FIT_HW_CRYPTO
+        ./scripts/config --set-val CONFIG_SYS_MALLOC_LEN 0x2000000  # 增加内存池
+        ./scripts/config --enable CONFIG_SPL_DM_SERIAL
+        ./scripts/config --enable CONFIG_CMD_PMIC
+        ./scripts/config --disable CONFIG_ROCKCHIP_EFUSE
+        
+        # 应用配置更改
+        make olddefconfig
 
     - name: Build U-Boot
       run: |
         cd u-boot
-        JOBS=$(( $(nproc) > 2 ? $(nproc)-1 : 1 ))
-        time make CROSS_COMPILE=${{ env.CROSS_COMPILE }} -j$JOBS all
+        time make CROSS_COMPILE=${{ env.CROSS_COMPILE }} -j$(nproc) all
         
         # 验证关键文件存在
-        if [ ! -f u-boot.itb ]; then
-          echo "ERROR: u-boot.itb not found!"
-          exit 1
-        fi
+        [ -f u-boot.bin ] || exit 1
+        [ -f idbloader.img ] || exit 1
+        [ -f u-boot.itb ] || exit 1
 
     - name: Prepare artifacts
       run: |
         cd u-boot
         mkdir -p artifacts/nanopi-m4-2g
         
-        # 复制所有生成的文件
-        cp *.bin *.img *.itb artifacts/nanopi-m4-2g/ 2>/dev/null || true
-        cp spl/u-boot-spl artifacts/nanopi-m4-2g/ 2>/dev/null || true
+        # 复制关键文件
+        cp u-boot.bin artifacts/nanopi-m4-2g/
+        cp u-boot.itb artifacts/nanopi-m4-2g/
+        cp idbloader.img artifacts/nanopi-m4-2g/
+        cp spl/u-boot-spl artifacts/nanopi-m4-2g/
         
-        # 尝试复制设备树文件
-        DTB_FILE=$(find arch/arm/dts -name "${{ env.BOARD }}*.dtb" -print -quit)
-        if [ -n "$DTB_FILE" ]; then
-          cp "$DTB_FILE" artifacts/nanopi-m4-2g/
+        # 设备树文件
+        if [ -f arch/arm/dts/${{ env.BOARD }}.dtb ]; then
+          cp arch/arm/dts/${{ env.BOARD }}.dtb artifacts/nanopi-m4-2g/
+        elif [ -f arch/arm/dts/${{ env.BOARD }}.dtb ]; then
+          cp arch/arm/dts/${{ env.BOARD }}.dtb artifacts/nanopi-m4-2g/
         else
-          echo "Warning: Device tree file not found"
+          echo "Warning: Device tree not found"
         fi
         
-        # 添加烧录说明 - 使用简单的字符串
-        cat > artifacts/nanopi-m4-2g/FLASH_INSTRUCTIONS.txt << 'EOF'
-========= NanoPi M4 (2G) U-Boot 烧录指南 =========
-
-1. 将下载的ZIP文件解压到本地目录
-2. 插入空白的microSD卡（至少1GB）
-3. 根据操作系统执行命令：
-
-Linux:
-  sudo dd if=idbloader.img of=/dev/sdX seek=64 conv=fsync
-  sudo dd if=u-boot.itb of=/dev/sdX seek=16384 conv=fsync
-
-Windows (使用Rufus):
-  下载 Rufus: https://rufus.ie/
-  选择DD镜像模式
-  选择u-boot.itb文件写入
-
-macOS:
-  diskutil unmountDisk /dev/diskN
-  sudo dd if=idbloader.img of=/dev/rdiskN seek=64
-  sudo dd if=u-boot.itb of=/dev/rdiskN seek=16384
-
-完成！将SD卡插入NanoPi M4启动
-EOF
+        # 添加烧录说明
+        cat > artifacts/nanopi-m4-2g/FLASH_INSTRUCTIONS.txt << EOF
+        ========= NanoPi M4 (2G) U-Boot 烧录指南 =========
+        
+        1. 确保SD卡已插入电脑（设备路径：/dev/sdX，请替换为实际设备）
+        2. 取消所有挂载：sudo umount /dev/sdX*
+        3. 烧写引导加载器：
+           sudo dd if=idbloader.img of=/dev/sdX seek=64 conv=fsync
+        4. 烧写U-Boot主体：
+           sudo dd if=u-boot.itb of=/dev/sdX seek=16384 conv=fsync
+        
+        对于eMMC设备：
+           sudo dd if=idbloader.img of=/dev/mmcblkX seek=64
+           sudo dd if=u-boot.itb of=/dev/mmcblkX seek=16384
+        
+        完成！将SD卡插入NanoPi M4启动
+        EOF
 
         # 生成构建信息
-        {
-          echo "U-Boot version: $(git describe --tags || git rev-parse --short HEAD)"
-          echo "Build date: $(date)"
-          echo "Target board: ${{ env.BOARD }}"
-          echo "Compiler: $(${{ env.CROSS_COMPILE }}gcc --version | head -1)"
-          echo "Host OS: $(uname -a)"
-          echo "Commit: $(git rev-parse HEAD)"
-        } > artifacts/nanopi-m4-2g/BUILD_INFO
+        echo "U-Boot version: $(git describe)" > artifacts/nanopi-m4-2g/BUILD_INFO
+        echo "Build date: $(date)" >> artifacts/nanopi-m4-2g/BUILD_INFO
+        echo "Target board: ${{ env.BOARD }}" >> artifacts/nanopi-m4-2g/BUILD_INFO
+        echo "Compiler: $(${{ env.CROSS_COMPILE }}gcc --version | head -1)" >> artifacts/nanopi-m4-2g/BUILD_INFO
+        echo "Host OS: $(uname -a)" >> artifacts/nanopi-m4-2g/BUILD_INFO
+        echo "Git commit: $(git rev-parse HEAD)" >> artifacts/nanopi-m4-2g/BUILD_INFO
         
         # 创建ZIP存档
         cd artifacts
         zip -r nanopi-m4-2g-uboot.zip nanopi-m4-2g
 
+    # 修复点：更新 upload-artifact 到 v4 版本
     - name: Upload artifacts
       uses: actions/upload-artifact@v4
       with:
         name: nanopi-m4-2g-uboot
         path: u-boot/artifacts/nanopi-m4-2g-uboot.zip
 
+    # 使用正确的发布操作
     - name: Create GitHub release (manual builds)
       if: ${{ github.event_name == 'workflow_dispatch' }}
       uses: softprops/action-gh-release@v1
@@ -173,9 +152,12 @@ EOF
           **NanoPi M4 (2G版) U-Boot 编译成果**
           
           构建包含：
-          - U-Boot 主二进制文件
-          - Rockchip 引导加载器
-          - 设备树文件
-          - 详细烧录指南
+          - idbloader.img：Rockchip 第一级引导
+          - u-boot.itb：U-Boot 主映像
+          - ${{ env.BOARD }}.dtb：设备树二进制
+          - 烧录指南
           
-          构建日志: https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}
+          此构建适用于：
+          - Rockchip RK3399 平台
+          - 2GB LPDDR4 内存型号
+          - Linux 6.0+ 内核
