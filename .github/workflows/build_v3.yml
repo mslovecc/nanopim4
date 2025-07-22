@@ -1,0 +1,179 @@
+name: Build U-Boot for NanoPi M4 (2G)
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - 'u-boot/**'
+  schedule:
+    - cron: '0 0 * * MON'
+
+env:
+  BOARD: nanopi-m4-2gb-rk3399
+  CROSS_COMPILE: aarch64-linux-gnu-
+  ARCH: arm64
+  BL31_SOURCE: "rk3399_bl31_v1.36.elf"
+  # 使用正确的 TEE-OS 文件名
+  TEE_SOURCE: "rk3399_optee_v1.07.bin"
+
+jobs:
+  build-uboot:
+    runs-on: ubuntu-22.04
+    timeout-minutes: 35
+
+    steps:
+    - name: Checkout repository
+      uses: actions/checkout@v4
+      
+    - name: Setup U-Boot source
+      run: |
+        if [ -d "u-boot" ]; then
+          echo "Using existing U-Boot source"
+        else
+          echo "Cloning U-Boot mainline"
+          git clone --depth 1 --branch v2024.07 https://github.com/u-boot/u-boot.git u-boot
+        fi
+
+    - name: Install dependencies
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y \
+          build-essential \
+          gcc-aarch64-linux-gnu \
+          gcc-arm-linux-gnueabihf \
+          device-tree-compiler \
+          libncurses-dev \
+          flex bison \
+          python3 python3-dev python3-setuptools \
+          swig libssl-dev \
+          zip wget
+
+    - name: Prepare Rockchip binaries
+      run: |
+        if [ ! -d "rkbin" ]; then
+          git clone --depth 1 https://github.com/rockchip-linux/rkbin.git
+        fi
+        
+        # 创建目标目录
+        mkdir -p u-boot/arch/arm/mach-rockchip
+        
+        # 复制 BL31 (ATF)
+        if [ -f "rkbin/bin/rk33/${{ env.BL31_SOURCE }}" ]; then
+          cp rkbin/bin/rk33/${{ env.BL31_SOURCE }} u-boot/arch/arm/mach-rockchip/bl31.elf
+        else
+          echo "Downloading BL31 from direct URL"
+          wget https://github.com/rockchip-linux/rkbin/raw/master/bin/rk33/${{ env.BL31_SOURCE }} -O u-boot/arch/arm/mach-rockchip/bl31.elf
+        fi
+        
+        # 复制 TEE-OS (OP-TEE) - 使用正确的文件名
+        if [ -f "rkbin/bin/rk33/${{ env.TEE_SOURCE }}" ]; then
+          cp rkbin/bin/rk33/${{ env.TEE_SOURCE }} u-boot/arch/arm/mach-rockchip/tee.bin
+        else
+          echo "Downloading TEE-OS from direct URL"
+          wget https://github.com/rockchip-linux/rkbin/raw/master/bin/rk33/${{ env.TEE_SOURCE }} -O u-boot/arch/arm/mach-rockchip/tee.bin
+        fi
+        
+        # 验证文件存在
+        if [ ! -f "u-boot/arch/arm/mach-rockchip/bl31.elf" ]; then
+          echo "ERROR: BL31 file not found!"
+          exit 1
+        fi
+        if [ ! -f "u-boot/arch/arm/mach-rockchip/tee.bin" ]; then
+          echo "WARNING: TEE-OS file not found, build may continue but some features may be missing"
+        fi
+
+    - name: Configure U-Boot
+      run: |
+        cd u-boot
+        make CROSS_COMPILE=${{ env.CROSS_COMPILE }} distclean
+        make CROSS_COMPILE=${{ env.CROSS_COMPILE }} ${{ env.BOARD }}_defconfig
+        
+    - name: Customize configuration for 2GB model
+      run: |
+        cd u-boot
+        # 为 2GB 型号设置特定配置
+        ./scripts/config --disable CONFIG_SPL_FIT_HW_CRYPTO
+        ./scripts/config --set-val CONFIG_SYS_MALLOC_LEN 0x2000000
+        ./scripts/config --enable CONFIG_SPL_DM_SERIAL
+        ./scripts/config --enable CONFIG_CMD_PMIC
+        ./scripts/config --disable CONFIG_ROCKCHIP_EFUSE
+        
+        # 启用 binman 支持
+        ./scripts/config --enable CONFIG_BINMAN
+        ./scripts/config --enable CONFIG_BINMAN_FDT
+        
+        # 应用配置更改
+        make olddefconfig
+
+    - name: Build U-Boot
+      run: |
+        cd u-boot
+        # 设置必要的环境变量
+        export BL31=$(pwd)/arch/arm/mach-rockchip/bl31.elf
+        export TEE=$(pwd)/arch/arm/mach-rockchip/tee.bin
+        
+        time make CROSS_COMPILE=${{ env.CROSS_COMPILE }} -j$(nproc) all
+        
+        # 验证关键文件存在
+        [ -f u-boot.itb ] || { echo "ERROR: u-boot.itb not found!"; exit 1; }
+        [ -f idbloader.img ] || { echo "ERROR: idbloader.img not found!"; exit 1; }
+
+    - name: Prepare artifacts
+      run: |
+        cd u-boot
+        mkdir -p artifacts/nanopi-m4-2g
+        
+        # 复制关键文件
+        cp u-boot.bin artifacts/nanopi-m4-2g/
+        cp u-boot.itb artifacts/nanopi-m4-2g/
+        cp idbloader.img artifacts/nanopi-m4-2g/
+        cp spl/u-boot-spl artifacts/nanopi-m4-2g/
+        
+        # 设备树文件
+        DTB_FILE=$(find arch/arm/dts -name "rk3399*.dtb" -print -quit)
+        if [ -n "$DTB_FILE" ]; then
+          cp "$DTB_FILE" artifacts/nanopi-m4-2g/
+        else
+          echo "Warning: Device tree not found"
+        fi
+        
+        # 添加烧录说明
+        cat > artifacts/nanopi-m4-2g/FLASH_INSTRUCTIONS.txt << 'EOF'
+        ========= NanoPi M4 (2G) U-Boot 烧录指南 =========
+        
+        1. 解压下载的ZIP文件
+        2. 插入空白microSD卡
+        3. 执行命令：
+        
+        Linux:
+          sudo dd if=idbloader.img of=/dev/sdX seek=64 conv=fsync
+          sudo dd if=u-boot.itb of=/dev/sdX seek=16384 conv=fsync
+
+        Windows:
+          使用Rufus工具选择DD模式写入u-boot.itb
+        
+        macOS:
+          diskutil unmountDisk /dev/diskN
+          sudo dd if=idbloader.img of=/dev/rdiskN seek=64
+          sudo dd if=u-boot.itb of=/dev/rdiskN seek=16384
+        EOF
+
+        # 生成构建信息
+        {
+          echo "U-Boot version: $(git describe --tags || git rev-parse --short HEAD)"
+          echo "Build date: $(date)"
+          echo "Target board: ${{ env.BOARD }}"
+          echo "Compiler: $(${{ env.CROSS_COMPILE }}gcc --version | head -1)"
+          echo "BL31 version: v1.36"
+          echo "TEE version: v1.07"
+        } > artifacts/nanopi-m4-2g/BUILD_INFO
+        
+        cd artifacts
+        zip -r nanopi-m4-2g-uboot.zip nanopi-m4-2g
+
+    - name: Upload artifacts
+      uses: actions/upload-artifact@v4
+      with:
+        name: nanopi-m4-2g-uboot
+        path: u-boot/artifacts/nanopi-m4-2g-uboot.zip
