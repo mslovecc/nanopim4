@@ -53,7 +53,7 @@ jobs:
           git clone --depth 1 https://github.com/rockchip-linux/rkbin.git
         fi
         # 复制必要的 Rockchip 二进制文件
-        cp rkbin/bin/rk33/${{ env.BL31_SOURCE }} u-boot/bl31.bin
+        cp rkbin/bin/rk33/${{ env.BL31_SOURCE }} u-boot/arch/arm/mach-rockchip/bl31.bin
 
     - name: Configure U-Boot
       run: |
