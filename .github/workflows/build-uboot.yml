@@ -30,7 +30,7 @@ jobs:
           echo "Using existing U-Boot source"
         else
           echo "Cloning U-Boot mainline"
-          git clone --depth 1 --branch v2024.07 https://source.denx.de/u-boot/u-boot.git u-boot
+          git clone --depth 1 --branch v2024.07 https://github.com/u-boot/u-boot.git u-boot
         fi
 
     - name: Install dependencies
