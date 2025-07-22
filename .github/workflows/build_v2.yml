@@ -139,21 +139,21 @@ jobs:
         
         # 添加烧录说明
         cat > artifacts/nanopi-m4-2g/FLASH_INSTRUCTIONS.txt << 'EOF'
-========= NanoPi M4 (2G) U-Boot 烧录指南 =========
+        ========= NanoPi M4 (2G) U-Boot 烧录指南 =========
 
-1. 确保SD卡已插入电脑（设备路径：/dev/sdX，请替换为实际设备）
-2. 取消所有挂载：sudo umount /dev/sdX*
-3. 烧写引导加载器：
-   sudo dd if=idbloader.img of=/dev/sdX seek=64 conv=fsync
-4. 烧写U-Boot主体：
-   sudo dd if=u-boot.itb of=/dev/sdX seek=16384 conv=fsync
-
-对于eMMC设备：
-   sudo dd if=idbloader.img of=/dev/mmcblkX seek=64
-   sudo dd if=u-boot.itb of=/dev/mmcblkX seek=16384
-
-完成！将SD卡插入NanoPi M4启动
-EOF
+        1. 确保SD卡已插入电脑（设备路径：/dev/sdX，请替换为实际设备）
+        2. 取消所有挂载：sudo umount /dev/sdX*
+        3. 烧写引导加载器：
+           sudo dd if=idbloader.img of=/dev/sdX seek=64 conv=fsync
+        4. 烧写U-Boot主体：
+           sudo dd if=u-boot.itb of=/dev/sdX seek=16384 conv=fsync
+        
+        对于eMMC设备：
+           sudo dd if=idbloader.img of=/dev/mmcblkX seek=64
+           sudo dd if=u-boot.itb of=/dev/mmcblkX seek=16384
+        
+        完成！将SD卡插入NanoPi M4启动
+        EOF
 
         # 生成构建信息
         echo "U-Boot version: $(git describe)" > artifacts/nanopi-m4-2g/BUILD_INFO
