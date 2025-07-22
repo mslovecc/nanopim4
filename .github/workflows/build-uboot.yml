@@ -13,7 +13,7 @@ env:
   BOARD: rk3399-nanopi-m4  # 特定设备配置
   CROSS_COMPILE: aarch64-linux-gnu-
   ARCH: arm64
-  BL31_SOURCE: "rk3399_bl31_v1.38.elf"  # Rockchip BL31 版本
+  BL31_SOURCE: "rk3399_bl31_v1.36.elf"  # Rockchip BL31 版本
 
 jobs:
   build-uboot:
