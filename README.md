@@ -6,11 +6,11 @@ flowchart LR
     subgraph "RoonCore 服务器"
     A[音乐库] --> B[Roon服务]
     end
-    subgraph "Moode 主机A"
+    subgraph "Moode 主机A(中继)"
     B --> C[Roon Bridge]
     C --> D[Diretta Host]
     end
-    subgraph "Moode 主机B"
+    subgraph "Moode 主机B(桥端)"
     D --> E[Diretta Target] --> F[DAC] --> G[音频输出]
     end
     
@@ -30,11 +30,11 @@ flowchart LR
     subgraph "DLNA控制点(Daphile)"
     A[DLNA控制器] --> B[音乐内容]
     end
-    subgraph "Moode 主机A"
+    subgraph "Moode 主机A(中继)"
     B --> C[DLNA渲染器]
     C --> D[Diretta Host]
     end
-    subgraph "Moode 主机B"
+    subgraph "Moode 主机B(桥端)"
     D --> E[Diretta Target] --> F[DAC] --> G[音频输出]
     end
     
