@@ -27,7 +27,7 @@ flowchart LR
 
 ```mermaid
 flowchart LR
-    subgraph "DLNA控制点(Daphile/foobar2000)"
+    subgraph "DLNA控制点(Daphile)"
     A[DLNA控制器] --> B[音乐内容]
     end
     subgraph "Moode 主机A(中继)"
