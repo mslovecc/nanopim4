@@ -4,7 +4,7 @@ uboot &amp; dtb
 ```mermaid
 flowchart LR
     subgraph "RoonCore 服务器"
-    A[音乐库] --> B[Roon服务]
+    A[音乐库] --> B[RoonServer]
     end
     subgraph "Moode 主机A(中继)"
     B --> C[Roon Bridge]
@@ -27,7 +27,7 @@ flowchart LR
 
 ```mermaid
 flowchart LR
-    subgraph "DLNA控制点(Daphile)"
+    subgraph "DLNA控制点(Daphile/foobar2000)"
     A[DLNA控制器] --> B[音乐内容]
     end
     subgraph "Moode 主机A(中继)"
