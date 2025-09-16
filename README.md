@@ -6,12 +6,12 @@ flowchart LR
     subgraph "DLNA控制点"
     A[DLNA控制器] --> B[音乐内容]
     end
-    subgraph "Moode 主机"
+    subgraph "Moode 主机A"
     B --> C[DLNA渲染器]
-    C --> D[Moode播放器]
+    C --> D[Diretta Host]
     end
-    subgraph "Diretta系统"
-    D --> E[Diretta发送端] --> F[Diretta接收端] --> G[DAC] --> H[音频输出]
+    subgraph "Moode 主机B"
+    D --> E[Diretta Target] --> F[DAC] --> G[音频输出]
     end
     
     style A fill:#f9f,stroke:#333,stroke-width:2px
@@ -21,5 +21,4 @@ flowchart LR
     style E fill:#fbf,stroke:#333,stroke-width:2px
     style F fill:#ff9,stroke:#333,stroke-width:2px
     style G fill:#9ff,stroke:#333,stroke-width:2px
-    style H fill:#f99,stroke:#333,stroke-width:2px
 ```
